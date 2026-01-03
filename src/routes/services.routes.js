@@ -6,6 +6,7 @@ const {
   updateService,
   disableService,
 } = require("../controllers/services.controller");
+const { checkLimit } = require("../middlewares/plan.middleware"); // ✅ ADICIONA ISSO
 
 router.use(requireAuth);
 

@@ -6,6 +6,7 @@ const {
   updateAppointment,
   deleteAppointment,
 } = require("../controllers/appointments.controller");
+const { checkLimit } = require("../middlewares/plan.middleware"); // ✅ ADICIONA ISSO
 
 router.use(requireAuth);
 

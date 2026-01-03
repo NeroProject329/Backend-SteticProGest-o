@@ -1,6 +1,7 @@
 const express = require("express");
 const { requireAuth } = require("../middlewares/auth.middleware");
 const { financeSummary } = require("../controllers/finance.controller");
+const { checkLimit } = require("../middlewares/plan.middleware"); // ✅ ADICIONA ISSO
 
 const router = express.Router();
 
