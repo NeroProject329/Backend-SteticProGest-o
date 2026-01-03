@@ -6,6 +6,7 @@ const authRoutes = require("./routes/auth.routes");
 const servicesRoutes = require("./routes/services.routes");
 const clientsRoutes = require("./routes/clients.routes");
 const appointmentsRoutes = require("./routes/appointments.routes");
+const financeRoutes = require("./routes/finance.routes");
 
 const app = express();
 app.use(cors());
@@ -17,5 +18,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/services", servicesRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/appointments", appointmentsRoutes);
+app.use("/api/finance", financeRoutes);
 
 module.exports = { app };
