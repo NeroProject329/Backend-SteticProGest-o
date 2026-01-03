@@ -14,7 +14,7 @@ model User {
   password  String
   createdAt DateTime @default(now())
 
-  salon     Salon?
+  salon Salon?
 }
 
 model Salon {
@@ -24,25 +24,27 @@ model Salon {
   phone     String?
   createdAt DateTime @default(now())
 
-  ownerId   String   @unique
-  owner     User     @relation(fields: [ownerId], references: [id])
+  ownerId String @unique
+  owner   User   @relation(fields: [ownerId], references: [id])
 
-  services      Service[]
-  clients       Client[]
-  appointments  Appointment[]
+  services     Service[]
+  clients      Client[]
+  appointments Appointment[]
 }
 
 model Service {
   id        String   @id @default(cuid())
   name      String
   category  String?
-  price     Int      // em centavos (ex: R$ 49,90 = 4990)
-  durationM Int      // duração em minutos
+  price     Int // em centavos (ex: R$ 49,90 = 4990)
+  durationM Int // duração em minutos
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  salonId   String
-  salon     Salon    @relation(fields: [salonId], references: [id])
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id])
+
+  appointments Appointment[]
 }
 
 model Client {
@@ -53,8 +55,8 @@ model Client {
   notes     String?
   createdAt DateTime @default(now())
 
-  salonId   String
-  salon     Salon    @relation(fields: [salonId], references: [id])
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id])
 
   appointments Appointment[]
 }
@@ -67,9 +69,16 @@ model Appointment {
   notes     String?
   createdAt DateTime @default(now())
 
-  salonId   String
-  salon     Salon    @relation(fields: [salonId], references: [id])
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id])
 
-  clientId  String
-  client    Client   @relation(fields: [clientId], references: [id])
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  @@index([salonId, startAt])
+  @@index([salonId, clientId])
+  @@index([salonId, serviceId])
 }
