@@ -1,10 +1,33 @@
 const { prisma } = require("../lib/prisma");
 
+function isWithinBusinessHours({ startAt, endAt, salon }) {
+  if (!salon.blockOutsideHours) return true;
+
+  if (!salon.openTime || !salon.closeTime || !salon.workingDays) return true;
+
+  const day = startAt.getDay(); // 0 (Dom) → 6 (Sáb)
+  if (!salon.workingDays.includes(day)) return false;
+
+  const [openH, openM] = salon.openTime.split(":").map(Number);
+  const [closeH, closeM] = salon.closeTime.split(":").map(Number);
+
+  const openMinutes = openH * 60 + openM;
+  const closeMinutes = closeH * 60 + closeM;
+
+  const startMinutes = startAt.getHours() * 60 + startAt.getMinutes();
+  const endMinutes = endAt.getHours() * 60 + endAt.getMinutes();
+
+  return startMinutes >= openMinutes && endMinutes <= closeMinutes;
+}
+
+
 function parseISODate(v) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return null;
   return d;
 }
+
+
 
 async function hasConflict({ salonId, startAt, endAt, excludeId }) {
   // Conflito se existir agendamento no mesmo salão (não cancelado)
@@ -83,6 +106,23 @@ async function createAppointment(req, res) {
   if (!service) return res.status(404).json({ message: "Serviço não encontrado ou inativo." });
 
   const end = new Date(start.getTime() + service.durationM * 60 * 1000);
+
+  const salon = await prisma.salon.findUnique({
+  where: { id: salonId },
+  select: {
+    openTime: true,
+    closeTime: true,
+    workingDays: true,
+    blockOutsideHours: true,
+  },
+});
+
+if (!isWithinBusinessHours({ startAt: start, endAt: end, salon })) {
+  return res.status(400).json({
+    message: "Agendamento fora do horário de funcionamento.",
+  });
+}
+
 
   const conflict = await hasConflict({ salonId, startAt: start, endAt: end });
   if (conflict) {
@@ -193,6 +233,23 @@ async function updateAppointment(req, res) {
     if (conflict) {
       return res.status(409).json({ message: "Conflito de horário: já existe agendamento nesse intervalo." });
     }
+
+    const salon = await prisma.salon.findUnique({
+  where: { id: salonId },
+  select: {
+    openTime: true,
+    closeTime: true,
+    workingDays: true,
+    blockOutsideHours: true,
+  },
+});
+
+if (!isWithinBusinessHours({ startAt: newStart, endAt: newEnd, salon })) {
+  return res.status(400).json({
+    message: "Agendamento fora do horário de funcionamento.",
+  });
+}
+
   }
 
   const appointment = await prisma.appointment.update({
