@@ -82,10 +82,27 @@ async function login(req, res) {
 
 async function me(req, res) {
   const { userId } = req.user;
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, email: true, phone: true, salon: { select: { id: true, name: true } } }
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      salon: {
+        select: {
+          id: true,
+          name: true,
+          plan: true,
+          planStatus: true,
+          planEndsAt: true,
+          trialEndsAt: true,
+        },
+      },
+    },
   });
+
   return res.json({ user });
 }
 
