@@ -4,11 +4,27 @@ function cleanPhone(v) {
   return String(v || "").replace(/\D/g, "");
 }
 
+const VALID_CLIENT_TYPES = new Set(["CLIENTE", "FORNECEDOR", "BOTH"]);
+
+function normalizeClientType(v) {
+  if (v === undefined || v === null || v === "") return undefined; // não mexe (usa default do Prisma)
+  const t = String(v).trim().toUpperCase();
+  return VALID_CLIENT_TYPES.has(t) ? t : null;
+}
+
 async function listClients(req, res) {
   const { salonId } = req.user;
   const q = (req.query.q || "").trim();
 
+  // opcional: filtro por tipo
+  const typeParam = normalizeClientType(req.query.type);
+  if (typeParam === null) {
+    return res.status(400).json({ message: "Tipo inválido. Use CLIENTE, FORNECEDOR ou BOTH." });
+  }
+
   const where = { salonId };
+
+  if (typeParam) where.type = typeParam;
 
   if (q) {
     where.OR = [
@@ -27,6 +43,7 @@ async function listClients(req, res) {
       phone: true,
       instagram: true,
       notes: true,
+      type: true,       // ✅ novo
       createdAt: true,
     },
   });
@@ -36,7 +53,7 @@ async function listClients(req, res) {
 
 async function createClient(req, res) {
   const { salonId } = req.user;
-  const { name, phone, instagram, notes } = req.body;
+  const { name, phone, instagram, notes, type } = req.body;
 
   if (!name || String(name).trim().length < 2) {
     return res.status(400).json({ message: "Nome do cliente é obrigatório." });
@@ -45,6 +62,11 @@ async function createClient(req, res) {
   const phoneClean = cleanPhone(phone);
   if (!phoneClean || phoneClean.length < 8) {
     return res.status(400).json({ message: "Telefone inválido." });
+  }
+
+  const typeNorm = normalizeClientType(type);
+  if (typeNorm === null) {
+    return res.status(400).json({ message: "Tipo inválido. Use CLIENTE, FORNECEDOR ou BOTH." });
   }
 
   // opcional: evita duplicado por telefone no mesmo salão
@@ -63,6 +85,7 @@ async function createClient(req, res) {
       instagram: instagram ? String(instagram).trim() : null,
       notes: notes ? String(notes).trim() : null,
       salonId,
+      ...(typeNorm ? { type: typeNorm } : {}), // ✅ se não vier, Prisma usa default CLIENTE
     },
     select: {
       id: true,
@@ -70,6 +93,7 @@ async function createClient(req, res) {
       phone: true,
       instagram: true,
       notes: true,
+      type: true,      // ✅ novo
       createdAt: true,
     },
   });
@@ -87,7 +111,7 @@ async function updateClient(req, res) {
   });
   if (!exists) return res.status(404).json({ message: "Cliente não encontrado." });
 
-  const { name, phone, instagram, notes } = req.body;
+  const { name, phone, instagram, notes, type } = req.body;
 
   const data = {};
 
@@ -117,6 +141,15 @@ async function updateClient(req, res) {
   if (instagram !== undefined) data.instagram = instagram ? String(instagram).trim() : null;
   if (notes !== undefined) data.notes = notes ? String(notes).trim() : null;
 
+  if (type !== undefined) {
+    const typeNorm = normalizeClientType(type);
+    if (typeNorm === null) {
+      return res.status(400).json({ message: "Tipo inválido. Use CLIENTE, FORNECEDOR ou BOTH." });
+    }
+    // se mandou vazio, ignora; se mandou válido, atualiza
+    if (typeNorm) data.type = typeNorm;
+  }
+
   const client = await prisma.client.update({
     where: { id },
     data,
@@ -126,6 +159,7 @@ async function updateClient(req, res) {
       phone: true,
       instagram: true,
       notes: true,
+      type: true,     // ✅ novo
       createdAt: true,
     },
   });
@@ -167,6 +201,7 @@ async function listClientsWithMetrics(req, res) {
       id: true,
       name: true,
       phone: true,
+      type: true, // ✅ novo
       createdAt: true,
       appointments: {
         select: {
@@ -179,44 +214,30 @@ async function listClientsWithMetrics(req, res) {
   });
 
   const result = clients.map((client) => {
-    const finalized = client.appointments.filter(
-      (a) => a.status === "FINALIZADO"
-    );
+    const finalized = client.appointments.filter((a) => a.status === "FINALIZADO");
+    const canceled = client.appointments.filter((a) => a.status === "CANCELADO");
 
-    const canceled = client.appointments.filter(
-      (a) => a.status === "CANCELADO"
-    );
-
-    const totalSpent = finalized.reduce(
-      (sum, a) => sum + (a.service?.price || 0),
-      0
-    );
+    const totalSpent = finalized.reduce((sum, a) => sum + (a.service?.price || 0), 0);
 
     const lastVisit =
       finalized.length > 0
-        ? finalized.reduce((latest, a) =>
-            a.startAt > latest ? a.startAt : latest
-          , finalized[0].startAt)
+        ? finalized.reduce((latest, a) => (a.startAt > latest ? a.startAt : latest), finalized[0].startAt)
         : null;
 
     const monthsActive = finalized.length
       ? Math.max(
           1,
-          Math.ceil(
-            (Date.now() - new Date(finalized[0].startAt)) /
-              (1000 * 60 * 60 * 24 * 30)
-          )
+          Math.ceil((Date.now() - new Date(finalized[0].startAt)) / (1000 * 60 * 60 * 24 * 30))
         )
       : 1;
 
-    const frequency = finalized.length
-      ? Number((finalized.length / monthsActive).toFixed(1))
-      : 0;
+    const frequency = finalized.length ? Number((finalized.length / monthsActive).toFixed(1)) : 0;
 
     return {
       id: client.id,
       name: client.name,
       phone: client.phone,
+      type: client.type, // ✅ novo
       totalSpent,
       visits: finalized.length,
       lastVisit,
@@ -227,7 +248,6 @@ async function listClientsWithMetrics(req, res) {
 
   return res.json({ clients: result });
 }
-
 
 module.exports = {
   listClients,

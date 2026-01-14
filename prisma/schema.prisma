@@ -6,6 +6,54 @@ datasource db {
   provider = "postgresql"
 }
 
+// ===============================
+// MARCENARIA — FASE 1 (Fundação)
+// ===============================
+
+enum ClientType {
+  CLIENTE
+  FORNECEDOR
+  BOTH
+}
+
+enum OrderStatus {
+  ORCAMENTO
+  PEDIDO
+  EM_PRODUCAO
+  PRONTO
+  ENTREGUE
+  CANCELADO
+}
+
+enum DeliveryStatus {
+  PENDENTE
+  EM_ROTA
+  ENTREGUE
+  ATRASADA
+  CANCELADA
+}
+
+enum InstallmentStatus {
+  PENDENTE
+  PAGO
+  ATRASADO
+  CANCELADO
+}
+
+enum CostType {
+  FIXO
+  VARIAVEL
+}
+
+enum PaymentMethod {
+  PIX
+  CARTAO
+  DINHEIRO
+  BOLETO
+  TRANSFERENCIA
+  OUTRO
+}
+
 model User {
   id        String   @id @default(cuid())
   name      String
@@ -20,45 +68,34 @@ model User {
 model Salon {
   id        String   @id @default(cuid())
   name      String
-  address   String?
-  phone     String?
-  logoUrl   String?
   createdAt DateTime @default(now())
 
-  // 🔥 CONFIGURAÇÕES DE FUNCIONAMENTO
-  openTime          String?   // "09:00"
-  closeTime         String?   // "18:00"
-  workingDays       Json?     // [1,2,3,4,5]
-  blockOutsideHours Boolean   @default(false)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
-  ownerId String @unique
-  owner   User   @relation(fields: [ownerId], references: [id])
+  plan       String    @default("FREE")
+  planStatus String    @default("ACTIVE")
+  planEndsAt DateTime?
 
-  // ✅ Plano
-  plan        String   @default("FREE")
-  planStatus  String   @default("ACTIVE")
-  planEndsAt  DateTime?
-  trialEndsAt DateTime?
-
-  services     Service[]
-  clients      Client[]
-  appointments Appointment[]
-
+  services         Service[]
+  clients          Client[]
+  appointments     Appointment[]
   cashCategories   CashCategory[]
   cashTransactions CashTransaction[]
-
+  orders           Order[]
+  receivables      Receivable[]
+  payables         Payable[]
+  costs            Cost[]
 
   @@index([plan, planStatus])
 }
-
-
 
 model Service {
   id        String   @id @default(cuid())
   name      String
   category  String?
   price     Int // em centavos (ex: R$ 49,90 = 4990)
-  durationM Int // duração em minutos
+  duration  Int // em minutos
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
@@ -76,17 +113,24 @@ model Client {
   notes     String?
   createdAt DateTime @default(now())
 
+  type ClientType @default(CLIENTE)
+
   salonId String
   salon   Salon  @relation(fields: [salonId], references: [id])
 
   appointments Appointment[]
+  orders       Order[]
+  payables     Payable[]
+  costs        Cost[]
+
+  @@index([salonId, type])
 }
 
 model Appointment {
   id        String   @id @default(cuid())
   startAt   DateTime
   endAt     DateTime
-  status    String   @default("PENDENTE") // PENDENTE|CONFIRMADO|FINALIZADO|CANCELADO
+  status    String   @default("SCHEDULED") // SCHEDULED, DONE, CANCELED
   notes     String?
   createdAt DateTime @default(now())
 
@@ -101,61 +145,245 @@ model Appointment {
 
   cashTransaction CashTransaction?
 
-
   @@index([salonId, startAt])
   @@index([salonId, clientId])
   @@index([salonId, serviceId])
 }
 
-
 enum CashType {
-  IN
-  OUT
+  INCOME
+  EXPENSE
 }
 
 enum CashSource {
-  AUTO_APPOINTMENT
   MANUAL
+  APPOINTMENT
 }
 
 model CashCategory {
   id        String   @id @default(cuid())
   name      String
-  type      CashType? // opcional: se quiser travar categoria por IN/OUT
+  type      CashType
   createdAt DateTime @default(now())
 
   salonId String
-  salon   Salon   @relation(fields: [salonId], references: [id])
+  salon   Salon  @relation(fields: [salonId], references: [id])
 
   transactions CashTransaction[]
 
-  @@unique([salonId, name])
-  @@index([salonId])
+  @@unique([salonId, name, type])
+  @@index([salonId, type])
 }
 
 model CashTransaction {
-  id          String     @id @default(cuid())
-  type        CashType
-  source      CashSource @default(MANUAL)
+  id     String     @id @default(cuid())
+  type   CashType
+  source CashSource @default(MANUAL)
 
-  name        String
+  amount      Int // em centavos
   occurredAt  DateTime
-  amountCents Int
+  description String?
 
-  notes       String?
-  createdAt   DateTime   @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   salonId String
-  salon   Salon      @relation(fields: [salonId], references: [id])
+  salon   Salon  @relation(fields: [salonId], references: [id])
 
   categoryId String?
   category   CashCategory? @relation(fields: [categoryId], references: [id])
 
   // integração com agenda (opcional, mas recomendado)
-  appointmentId String?  @unique
+  appointmentId String?      @unique
   appointment   Appointment? @relation(fields: [appointmentId], references: [id])
 
   @@index([salonId, occurredAt])
   @@index([salonId, type])
   @@index([salonId, categoryId])
+}
+
+// ===============================
+// MARCENARIA — MODELS NOVOS
+// ===============================
+
+model Order {
+  id     String      @id @default(cuid())
+  status OrderStatus @default(ORCAMENTO)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // multi-tenant: reaproveita "Salon" como empresa/unidade
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id])
+
+  // valores (centavos)
+  subtotalCents Int @default(0)
+  discountCents Int @default(0)
+  totalCents    Int @default(0)
+
+  // previsão/entrega
+  expectedDeliveryAt DateTime?
+  deliveredAt        DateTime?
+
+  notes String?
+
+  items       OrderItem[]
+  deliveries  Delivery[]
+  receivables Receivable[]
+
+  @@index([salonId, createdAt])
+  @@index([salonId, status])
+  @@index([clientId])
+}
+
+model OrderItem {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  name        String
+  description String?
+  quantity    Int     @default(1)
+
+  unitPriceCents Int @default(0)
+  totalCents     Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+model Delivery {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  status DeliveryStatus @default(PENDENTE)
+
+  expectedAt  DateTime?
+  deliveredAt DateTime?
+  address     String?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+}
+
+model Receivable {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id])
+
+  totalCents Int            @default(0)
+  method     PaymentMethod?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  installments ReceivableInstallment[]
+
+  @@index([salonId, createdAt])
+  @@index([orderId])
+}
+
+model ReceivableInstallment {
+  id String @id @default(cuid())
+
+  receivableId String
+  receivable   Receivable @relation(fields: [receivableId], references: [id])
+
+  number      Int
+  dueDate     DateTime
+  amountCents Int
+
+  status InstallmentStatus @default(PENDENTE)
+  paidAt DateTime?
+  method PaymentMethod?
+
+  createdAt DateTime @default(now())
+
+  @@index([receivableId])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model Payable {
+  id String @id @default(cuid())
+
+  // fornecedor (usa Client com type FORNECEDOR/BOTH)
+  supplierId String?
+  supplier   Client? @relation(fields: [supplierId], references: [id])
+
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id])
+
+  description String
+  totalCents  Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  installments PayableInstallment[]
+
+  @@index([salonId, createdAt])
+  @@index([supplierId])
+}
+
+model PayableInstallment {
+  id String @id @default(cuid())
+
+  payableId String
+  payable   Payable @relation(fields: [payableId], references: [id])
+
+  number      Int
+  dueDate     DateTime
+  amountCents Int
+
+  status InstallmentStatus @default(PENDENTE)
+  paidAt DateTime?
+  method PaymentMethod?
+
+  createdAt DateTime @default(now())
+
+  @@index([payableId])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model Cost {
+  id String @id @default(cuid())
+
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id])
+
+  type CostType
+
+  name        String
+  description String?
+
+  amountCents Int
+  occurredAt  DateTime
+
+  supplierId String?
+  supplier   Client? @relation(fields: [supplierId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([salonId, occurredAt])
+  @@index([salonId, type])
+  @@index([supplierId])
 }
